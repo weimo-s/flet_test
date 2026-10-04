@@ -1,0 +1,81 @@
+# 参考文档：https://docs.flet.dev/publish/#github-actions/
+name: Flet Build
+
+on:
+  workflow_dispatch: # 支持手动触发，可指定版本号/构建号
+    inputs:
+      build_version:
+        description: "版本号（留空则自动获取：Tag → pyproject.toml → Run Number）"
+        required: false
+        default: ""
+      build_number:
+        description: "构建号（留空则自动用 GitHub Run Number）"
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v*" # 打 Tag 自动触发（如 git tag v0.1.0）
+
+env:
+  UV_PYTHON: "3.13"          # 与本地 Python 版本保持一致
+  PYTHONUTF8: "1"            # 防止 Windows 构建时控制台编码报错
+  FLET_CLI_NO_RICH_OUTPUT: "1" # 关掉 CI 日志的 rich 进度条，便于排查
+
+jobs:
+  windows:
+    name: BuildWindows
+    runs-on: windows-latest
+    permissions:
+      contents: write # 给 action-gh-release 创建 Release 权限
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true # 缓存依赖，加速后续构建
+
+      - name: Install Dependencies
+        run: uv sync --locked # 严格锁定依赖版本，确保构建可重复
+
+      - name: Build Flet Windows App
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # ── 版本号优先级：手动输入 > Git Tag > pyproject.toml > Run Number ──
+          VERSION="${{ inputs.build_version }}"
+          if [ -z "$VERSION" ]; then
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              # 从 tag（如 v0.1.0）提取版本号（如 0.1.0）
+              VERSION="${GITHUB_REF_NAME#v}"
+            else
+              # 兜底：读取 pyproject.toml 中的 version 字段
+              VERSION="$(uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])" 2>/dev/null || echo "$GITHUB_RUN_NUMBER")"
+            fi
+          fi
+
+          # ── 构建号优先级：手动输入 > Run Number ──
+          BUILD_NUMBER="${{ inputs.build_number }}"
+          [ -z "$BUILD_NUMBER" ] && BUILD_NUMBER="$GITHUB_RUN_NUMBER"
+
+          echo "🚀 Building Flet App | Version=$VERSION | BuildNumber=$BUILD_NUMBER"
+
+          # 执行 Flet 构建（自动生成 build/windows/MyApp-win-x64.zip）
+          uv run flet build windows --yes \
+            --build-version "$VERSION" \
+            --build-number "$BUILD_NUMBER"
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: MyApp-win-x64
+          path: build/windows
+          if-no-files-found: error
+
+      # - name: Attach to GitHub Release
+      #   # 仅在 Tag 触发时创建 Release（手动触发只上传 Artifact 方便测试）
+      #   if: startsWith(github.ref, 'refs/tags/')
+      #   uses: softprops/action-gh-release@v3
+      #   with:
+      #     files: build/windows/MyApp-win-x64.zip
+      #     overwrite_files: true # 覆盖同名文件
