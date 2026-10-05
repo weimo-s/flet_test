@@ -12,7 +12,7 @@ on:
     tags: [ 'v*' ]
 
 env:
-  UV_PYTHON: "3.12"
+  UV_PYTHON: "3.13"
   PYTHONUTF8: "1"
   FLET_CLI_NO_RICH_OUTPUT: "1"
 
@@ -46,7 +46,7 @@ jobs:
             version="$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)"
           fi
           echo "BUILD_VERSION=$version" >> "$GITHUB_ENV"
-          echo "BUILD_VERSION=$version" > .build_version.txt
+          echo -n "$version" > .build_version.txt
 
       - name: Flet build web
         shell: bash
