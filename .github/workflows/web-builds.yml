@@ -71,12 +71,12 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: web-zip-artifact
-          path: "../../${ZIP_NAME}"
+          path: ${{ env.ZIP_FILE }}
           if-no-files-found: error
 
       - name: Attach web‑zip to GitHub Release (Only tag push)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: "../../${ZIP_NAME}"
+          files: ${{ env.ZIP_FILE }}
           generate_release_notes: true
