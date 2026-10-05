@@ -8,7 +8,7 @@ on:
         required: false
         default: ""
   push:
-    branches: [ main ]
+    # branches: [ main ]
     tags: [ 'v*' ]
 
 env:
