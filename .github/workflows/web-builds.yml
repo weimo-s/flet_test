@@ -1,0 +1,82 @@
+name: Build Web Only (Zip Artifact + Release)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_version:
+        description: "Web构建版本，留空优先tag，再pyproject.toml"
+        required: false
+        default: ""
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+
+env:
+  UV_PYTHON: "3.12"
+  PYTHONUTF8: "1"
+  FLET_CLI_NO_RICH_OUTPUT: "1"
+
+jobs:
+  build_web:
+    name: Build Flet Web → Zip Package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies strict lock
+        run: uv sync --locked
+
+      - name: Resolve web build version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.build_version }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION:-}"
+          if [ -z "$version" ] && [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          if [ -z "$version" ]; then
+            version="$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)"
+          fi
+          echo "BUILD_VERSION=$version" >> "$GITHUB_ENV"
+          echo "BUILD_VERSION=$version" > .build_version.txt
+
+      - name: Flet build web
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run flet build web --yes --verbose --build-version "${BUILD_VERSION}"
+
+      - name: Compress web output to zip & upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(cat .build_version.txt)
+          ZIP_NAME="flet-web-v${VERSION}.zip"
+
+          cd build/web
+          zip -r "../../${ZIP_NAME}" .
+          cd -
+
+          echo "ZIP_FILE=${ZIP_NAME}" >> $GITHUB_ENV
+
+      - name: Upload zip to Actions Artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: web-zip-artifact
+          path: "../../${ZIP_NAME}"
+          if-no-files-found: error
+
+      - name: Attach web‑zip to GitHub Release (Only tag push)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "../../${ZIP_NAME}"
+          generate_release_notes: true
